@@ -64,7 +64,7 @@ class Ray {
 public:
     Vector direction;
     Vector origin;
-    Ray(Vector& direction, Vector& origin){
+    Ray(Vector direction, Vector origin){
         this->direction = direction;
         this->origin = origin;
     }
@@ -74,7 +74,7 @@ class Sphere {
 public:
     Vector center, albedo;
     double radius;
-    Sphere(Vector &center, Vector &albedo, double radius){
+    Sphere(Vector center, Vector albedo, double radius){
         this->center = center;
         this->albedo = albedo;
         this->radius = radius;
@@ -90,12 +90,66 @@ public:
         if (t < 0){
             t += 2 * sqrt_delta;
         }
+        if (t < 0 ){
+            return false;
+        }
         P = ray.origin + t * ray.direction;
         N = P - this->center;
         N.normalize();
         return true;
     }
+    Vector computeColor(double lightIntensity, const Vector& lightSource, const Vector& P, const Vector& N){
+        Vector tmp = lightSource - P; 
+        return lightIntensity / (4 * PI * tmp.norm2() * PI) * std::max(0., dot(N, (1 / tmp.norm()) * tmp)) * this->albedo;
 
+    }
+
+
+
+
+};
+
+class Scene {
+public:
+    Vector lightSource;
+    double lightIntensity;
+    std::vector<Sphere> objects;
+    Scene(double lightIntensity, Vector lightSource){
+        this->lightSource = lightSource;
+        this->lightIntensity = lightIntensity;
+    }
+    void addObject(Sphere S){
+        objects.push_back(S);
+    }
+    bool intersect(Ray& ray, Vector& P, Vector& N, size_t& sphere_id){
+        Vector Ptemp, Ntemp;
+        double t = INT64_MAX, t_temp;
+        bool intersected = false; 
+        for (size_t i = 0; i < size(objects); ++i){
+            if (objects[i].intersect(ray, Ptemp, Ntemp, t_temp)){
+                intersected = true;
+                if (t_temp < t){
+                    t = t_temp;
+                    P = Ptemp;
+                    N = Ntemp;
+                    sphere_id = i;
+                }
+            }
+           
+        }
+        return intersected;
+    }
+    Vector getColor(Ray& ray, int recDepth){
+        if (recDepth == 0){
+            return Vector(0., 0., 0.);
+        }
+        Vector N, P;
+        size_t sphere_id;
+        if (this->intersect(ray, P, N, sphere_id)){
+            return objects[sphere_id].computeColor(this->lightIntensity, this->lightSource, P, N);
+        }
+        return Vector(0., 0., 0.);
+    }
 
 };
  
@@ -106,27 +160,24 @@ int main() {
     int H = 512;
     Vector camera_pos = Vector(0., 0., 55.); 
     double angle = PI / 3.;
-    Vector C = Vector(0., 0., 0.);
-    Vector alb = Vector(0.3, 0.2, 0.1);
-    Sphere S = Sphere(C, alb, 10.);
-    double I = 1E8;
-    Vector L = Vector(-10., 20., 40.);
- 
+    Scene scene = Scene(1E10, Vector(-10., 20., 40.));
+    scene.addObject(Sphere(Vector(0., 0., 0.), Vector(0.3, 0.2, 0.1), 10.));
+    scene.addObject(Sphere(Vector(0., 1000., 0.), Vector(1., 0., 0.), 940.));
+    scene.addObject(Sphere(Vector(0., 0., 1000.), Vector(1., 1., 1.), 940.));
+    scene.addObject(Sphere(Vector(0., 0., -1000.), Vector(0., 1., 0.), 940.));
+    scene.addObject(Sphere(Vector(0., -1000., 0.), Vector(0., 0., 1.), 990.));
     std::vector<unsigned char> image(W * H * 3, 0);
     for (int i = 0; i < H; i++) {
         for (int j = 0; j < W; j++) {
             Vector ray_dir = Vector(j - W / 2 + 0.5, H / 2 - i - 0.5, - W / (2 * tan(angle / 2)));
             ray_dir.normalize();
             Ray ray = Ray(ray_dir, camera_pos);
-            Vector P, N; 
-            double t; 
-            if (S.intersect(ray, P, N, t)){
-                Vector tmp = L - P; 
-                Vector col = I / (4 * PI * tmp.norm2() * PI) * std::max(0., dot(N, (1 / tmp.norm()) * tmp)) * alb;
-                image[(i * W + j) * 3 + 0] = std::min(255, (int) col[0]);
-                image[(i * W + j) * 3 + 1] = std::min(255, (int) col[1]);
-                image[(i * W + j) * 3 + 2] = std::min(255, (int) col[2]);
-            }
+            Vector P, N;
+            Vector col = scene.getColor(ray, 5);
+            image[(i * W + j) * 3 + 0] = std::min(255., std::pow(col[0], 1 / 2.2));
+            image[(i * W + j) * 3 + 1] = std::min(255., std::pow(col[1], 1 / 2.2));
+            image[(i * W + j) * 3 + 2] = std::min(255., std::pow(col[2], 1 / 2.2));
+            
             
         }
     }
