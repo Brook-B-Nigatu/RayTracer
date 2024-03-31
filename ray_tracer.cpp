@@ -114,6 +114,7 @@ public:
     Vector lightSource;
     double lightIntensity;
     std::vector<Sphere> objects;
+    double epsilon = 0.001;
     Scene(double lightIntensity, Vector lightSource){
         this->lightSource = lightSource;
         this->lightIntensity = lightIntensity;
@@ -146,6 +147,15 @@ public:
         Vector N, P;
         size_t sphere_id;
         if (this->intersect(ray, P, N, sphere_id)){
+            P = P + epsilon * N;
+            Vector P2, N2;
+            size_t si;
+            Vector rayDir = this->lightSource - P;
+            rayDir.normalize();
+            Ray rayPL(rayDir, P);
+            if (this->intersect(rayPL, P2, N2, si) && (this->lightSource - P).norm2() > (P2 - P).norm2()){
+                return Vector(0., 0., 0.);
+            }
             return objects[sphere_id].computeColor(this->lightIntensity, this->lightSource, P, N);
         }
         return Vector(0., 0., 0.);
