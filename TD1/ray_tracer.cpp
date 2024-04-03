@@ -2,10 +2,10 @@
 #include <vector>
  
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+#include "../lib/stb_image.h"
  
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "../lib/stb_image_write.h"
 #include <cmath>
 
 #include "iostream"
@@ -73,13 +73,28 @@ public:
 class Sphere {
 public:
     Vector center, albedo;
-    double radius;
-    Sphere(Vector center, Vector albedo, double radius){
+    double radius, refractionIndex;
+    bool isMirror = false, isTransparent = false, invertNormal = false;
+
+    Sphere(Vector center, Vector albedo, double radius, bool isMirror = false){
         this->center = center;
         this->albedo = albedo;
         this->radius = radius;
+        this->isMirror = isMirror;
     }
-    bool intersect(Ray &ray, Vector& P, Vector& N, double& t){
+    Sphere(Vector center, double radius){ // Mirrors
+        this->center = center;
+        this->radius = radius;
+        this->isMirror = true;
+    }
+    Sphere(Vector center, double radius, double refractionIndex, bool invertNormal = false){ // Transparent
+        this->center = center;
+        this->radius = radius;
+        this->isTransparent = true;
+        this->refractionIndex = refractionIndex;
+        this->invertNormal = invertNormal;
+    }
+    bool intersect(const Ray &ray, Vector& P, Vector& N, double& t){
         Vector temp = ray.origin - this->center;
         double delta = square(dot(ray.direction, temp)) - (temp.norm2() - square(this->radius));
         if (delta < 0){
@@ -94,8 +109,7 @@ public:
             return false;
         }
         P = ray.origin + t * ray.direction;
-        N = P - this->center;
-        N.normalize();
+        N = getNormal(P);
         return true;
     }
     Vector computeColor(double lightIntensity, const Vector& lightSource, const Vector& P, const Vector& N){
@@ -103,10 +117,11 @@ public:
         return lightIntensity / (4 * PI * tmp.norm2() * PI) * std::max(0., dot(N, (1 / tmp.norm()) * tmp)) * this->albedo;
 
     }
-
-
-
-
+    Vector getNormal(const Vector& P){
+        Vector N = P - this->center;
+        N.normalize();
+        return N;
+    }
 };
 
 class Scene {
@@ -122,7 +137,7 @@ public:
     void addObject(Sphere S){
         objects.push_back(S);
     }
-    bool intersect(Ray& ray, Vector& P, Vector& N, size_t& sphere_id){
+    bool intersect(const Ray& ray, Vector& P, Vector& N, size_t& sphere_id){
         Vector Ptemp, Ntemp;
         double t = INT64_MAX, t_temp;
         bool intersected = false; 
@@ -140,13 +155,48 @@ public:
         }
         return intersected;
     }
-    Vector getColor(Ray& ray, int recDepth){
+    Ray reflect(const Ray& incident, Vector& P, const Vector& N){
+        P = P + epsilon * N;
+        Vector reflectedDir = incident.direction - 2 * dot(incident.direction, N) * N;
+        reflectedDir.normalize();
+        Ray reflected(reflectedDir, P);
+        return reflected;
+    }
+    Vector getColor(const Ray& ray, int recDepth){
         if (recDepth == 0){
             return Vector(0., 0., 0.);
         }
         Vector N, P;
         size_t sphere_id;
         if (this->intersect(ray, P, N, sphere_id)){
+           
+            if(this->objects[sphere_id].isMirror){
+                return getColor(reflect(ray, P, N), recDepth - 1);
+            }
+            if(this->objects[sphere_id].isTransparent){
+                double dotProd = dot(ray.direction, N);
+                Sphere &obj = std::ref(this->objects[sphere_id]);
+                double ratio = 1 / obj.refractionIndex;
+                if (dotProd > 0){
+                    N = -1 * N;
+                    ratio = 1 / ratio;
+                }
+                if (obj.invertNormal){
+                    ratio = 1 / ratio;
+                }
+                double temp = std::max(1 - std::pow(ratio, 2) * (1 - std::pow(dot(ray.direction, N), 2)), 0.);
+                if (temp < 0){
+                    return getColor(reflect(ray, P, N), recDepth - 1);
+                    //return Vector(0., 0., 0.);
+                }
+                Vector tangential = ratio * (ray.direction - dot(ray.direction, N) * N);
+                Vector normal = -sqrt(temp) * N;
+                P = P - epsilon * N;
+                Vector transmittedDir = tangential + normal;
+                transmittedDir.normalize();
+                Ray transmitted(transmittedDir, P);
+                return getColor(transmitted, recDepth - 1);
+            }
             P = P + epsilon * N;
             Vector P2, N2;
             size_t si;
@@ -171,11 +221,16 @@ int main() {
     Vector camera_pos = Vector(0., 0., 55.); 
     double angle = PI / 3.;
     Scene scene = Scene(1E10, Vector(-10., 20., 40.));
-    scene.addObject(Sphere(Vector(0., 0., 0.), Vector(0.3, 0.2, 0.1), 10.));
+    scene.addObject(Sphere(Vector(-20., 0., 0.), 10.));
+    scene.addObject(Sphere(Vector(0., 0., 0.), 10., 1.5));
+    scene.addObject(Sphere(Vector(20., 0., 0.), 9., 1.5, true));
+    scene.addObject(Sphere(Vector(20., 0., 0.), 10., 1.5));
     scene.addObject(Sphere(Vector(0., 1000., 0.), Vector(1., 0., 0.), 940.));
-    scene.addObject(Sphere(Vector(0., 0., 1000.), Vector(1., 1., 1.), 940.));
+    scene.addObject(Sphere(Vector(0., 0., 1000.), Vector(1., 0.5, 0.5), 940.));
     scene.addObject(Sphere(Vector(0., 0., -1000.), Vector(0., 1., 0.), 940.));
     scene.addObject(Sphere(Vector(0., -1000., 0.), Vector(0., 0., 1.), 990.));
+    scene.addObject(Sphere(Vector(1000., 0., 0.), Vector(1., 1., 0.), 940.));
+    scene.addObject(Sphere(Vector(-1000., 0., 0.), Vector(0.5, 0.5, 1.), 940.));
     std::vector<unsigned char> image(W * H * 3, 0);
     for (int i = 0; i < H; i++) {
         for (int j = 0; j < W; j++) {
@@ -183,10 +238,10 @@ int main() {
             ray_dir.normalize();
             Ray ray = Ray(ray_dir, camera_pos);
             Vector P, N;
-            Vector col = scene.getColor(ray, 5);
-            image[(i * W + j) * 3 + 0] = std::min(255., std::pow(col[0], 1 / 2.2));
-            image[(i * W + j) * 3 + 1] = std::min(255., std::pow(col[1], 1 / 2.2));
-            image[(i * W + j) * 3 + 2] = std::min(255., std::pow(col[2], 1 / 2.2));
+            Vector col = scene.getColor(ray, 10);
+            image[(i * W + j) * 3 + 0] = (unsigned char) std::min(255., std::pow(col[0], 1 / 2.2));
+            image[(i * W + j) * 3 + 1] = (unsigned char) std::min(255., std::pow(col[1], 1 / 2.2));
+            image[(i * W + j) * 3 + 2] = (unsigned char) std::min(255., std::pow(col[2], 1 / 2.2));
             
             
         }
