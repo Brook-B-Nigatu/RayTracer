@@ -11,6 +11,12 @@
 #include "iostream"
 #define PI 3.1415296
 
+#include <random>
+static std::default_random_engine engine (10); // random seed = 10
+static std::uniform_real_distribution<double> uniform (0, 1);
+
+#include <omp.h>
+
 double square(double x){
     return x * x;
 }
@@ -49,6 +55,9 @@ Vector operator*(const double a, const Vector& b) {
 }
 Vector operator*(const Vector& a, const double b) {
     return Vector(a[0]*b, a[1]*b, a[2]*b);
+}
+Vector operator*(const Vector& a, const Vector& b){
+    return Vector(a[0] * b[0], a[1] * b[1], a[2] * b[2]);
 }
 Vector operator/(const Vector& a, const double b) {
     return Vector(a[0] / b, a[1] / b, a[2] / b);
@@ -122,7 +131,22 @@ public:
         N.normalize();
         return N;
     }
+
 };
+
+Vector randomCos(const Vector& N){
+        double r1 = uniform(engine);
+        double r2 = uniform(engine);
+        double x = cos(2 * PI * r1) * sqrt(1 - r2);
+        double y = sin(2 * PI * r1) * sqrt(1 - r2);
+        double z = sqrt(r2);
+
+        Vector T1(-N[1], N[0], 0);
+        T1.normalize();
+        Vector T2 = cross(N, T1);
+
+        return x * T1 + y * T2 + z * N;
+    }
 
 class Scene {
 public:
@@ -206,7 +230,8 @@ public:
             if (this->intersect(rayPL, P2, N2, si) && (this->lightSource - P).norm2() > (P2 - P).norm2()){
                 return Vector(0., 0., 0.);
             }
-            return objects[sphere_id].computeColor(this->lightIntensity, this->lightSource, P, N);
+            Vector col = objects[sphere_id].computeColor(this->lightIntensity, this->lightSource, P, N);
+            return col + (objects[sphere_id].albedo * getColor(Ray(randomCos(N), P), recDepth - 1));
         }
         return Vector(0., 0., 0.);
     }
@@ -232,13 +257,20 @@ int main() {
     scene.addObject(Sphere(Vector(1000., 0., 0.), Vector(1., 1., 0.), 940.));
     scene.addObject(Sphere(Vector(-1000., 0., 0.), Vector(0.5, 0.5, 1.), 940.));
     std::vector<unsigned char> image(W * H * 3, 0);
+    int REC_DEPTH = 10;
+    int ray_count = 512;
+#pragma omp parallel for schedule(dynamic, 1)
     for (int i = 0; i < H; i++) {
         for (int j = 0; j < W; j++) {
             Vector ray_dir = Vector(j - W / 2 + 0.5, H / 2 - i - 0.5, - W / (2 * tan(angle / 2)));
             ray_dir.normalize();
             Ray ray = Ray(ray_dir, camera_pos);
             Vector P, N;
-            Vector col = scene.getColor(ray, 10);
+            Vector col(0., 0., 0.);
+            for (int k = 0; k < ray_count; ++k){
+                col = col + scene.getColor(ray, REC_DEPTH);
+            }
+            col = col / ray_count;
             image[(i * W + j) * 3 + 0] = (unsigned char) std::min(255., std::pow(col[0], 1 / 2.2));
             image[(i * W + j) * 3 + 1] = (unsigned char) std::min(255., std::pow(col[1], 1 / 2.2));
             image[(i * W + j) * 3 + 2] = (unsigned char) std::min(255., std::pow(col[2], 1 / 2.2));
