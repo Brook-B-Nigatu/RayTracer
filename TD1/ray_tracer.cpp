@@ -134,7 +134,15 @@ public:
 
 };
 
-Vector randomCos(const Vector& N){
+Vector boxMuller(double stdev){
+    double r1 = uniform(engine);
+    double r2 = uniform(engine);
+    double x = sqrt(-2 * log(r1)) * cos(2 * PI * r2) * stdev;
+    double y = sqrt(-2 * log(r1)) * sin(2 * PI * r2) * stdev;
+    return Vector(x, y, 0.);
+}
+
+Vector randomVect(const Vector& N){
         double r1 = uniform(engine);
         double r2 = uniform(engine);
         double x = cos(2 * PI * r1) * sqrt(1 - r2);
@@ -227,11 +235,14 @@ public:
             Vector rayDir = this->lightSource - P;
             rayDir.normalize();
             Ray rayPL(rayDir, P);
+            Vector col;
             if (this->intersect(rayPL, P2, N2, si) && (this->lightSource - P).norm2() > (P2 - P).norm2()){
-                return Vector(0., 0., 0.);
+                col = Vector(0., 0., 0.);
             }
-            Vector col = objects[sphere_id].computeColor(this->lightIntensity, this->lightSource, P, N);
-            return col + (objects[sphere_id].albedo * getColor(Ray(randomCos(N), P), recDepth - 1));
+            else{
+                col = objects[sphere_id].computeColor(this->lightIntensity, this->lightSource, P, N);
+            }
+            return col + (objects[sphere_id].albedo * getColor(Ray(randomVect(N), P), recDepth - 1));
         }
         return Vector(0., 0., 0.);
     }
@@ -258,16 +269,16 @@ int main() {
     scene.addObject(Sphere(Vector(-1000., 0., 0.), Vector(0.5, 0.5, 1.), 940.));
     std::vector<unsigned char> image(W * H * 3, 0);
     int REC_DEPTH = 10;
-    int ray_count = 512;
+    int ray_count = 32;
 #pragma omp parallel for schedule(dynamic, 1)
     for (int i = 0; i < H; i++) {
         for (int j = 0; j < W; j++) {
-            Vector ray_dir = Vector(j - W / 2 + 0.5, H / 2 - i - 0.5, - W / (2 * tan(angle / 2)));
-            ray_dir.normalize();
-            Ray ray = Ray(ray_dir, camera_pos);
-            Vector P, N;
+            
             Vector col(0., 0., 0.);
             for (int k = 0; k < ray_count; ++k){
+                Vector ray_dir = Vector(j - W / 2 + 0.5, H / 2 - i - 0.5, - W / (2 * tan(angle / 2))) + boxMuller(1);
+                ray_dir.normalize();
+                Ray ray = Ray(ray_dir, camera_pos);
                 col = col + scene.getColor(ray, REC_DEPTH);
             }
             col = col / ray_count;
