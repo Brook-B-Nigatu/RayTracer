@@ -8,14 +8,32 @@
 #include "../lib/stb_image_write.h"
 #include <cmath>
 
-#include "iostream"
+#include <iostream>
 #define PI 3.1415296
+#define EPS 0.001
 
 #include <random>
 static std::default_random_engine engine (10); // random seed = 10
 static std::uniform_real_distribution<double> uniform (0, 1);
 
 #include <omp.h>
+#include <string>
+#include <stdio.h>
+#include <algorithm>
+
+
+class TriangleIndices {
+public:
+	TriangleIndices(int vtxi = -1, int vtxj = -1, int vtxk = -1, int ni = -1, int nj = -1, int nk = -1, int uvi = -1, int uvj = -1, int uvk = -1, int group = -1, bool added = false) : vtxi(vtxi), vtxj(vtxj), vtxk(vtxk), uvi(uvi), uvj(uvj), uvk(uvk), ni(ni), nj(nj), nk(nk), group(group) {
+	};
+	int vtxi, vtxj, vtxk; // indices within the vertex coordinates array
+	int uvi, uvj, uvk;  // indices within the uv coordinates array
+	int ni, nj, nk;  // indices within the normals array
+	int group;       // face group
+};
+
+
+
 
 double square(double x){
     return x * x;
@@ -68,6 +86,32 @@ double dot(const Vector& a, const Vector& b) {
 Vector cross(const Vector& a, const Vector& b) {
     return Vector(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]);
 }
+Vector randomVect(const Vector& N){
+        double r1 = uniform(engine);
+        double r2 = uniform(engine);
+        double x = cos(2 * PI * r1) * sqrt(1 - r2);
+        double y = sin(2 * PI * r1) * sqrt(1 - r2);
+        double z = sqrt(r2);
+
+        Vector T1(N[1], -N[0], 0.);
+        if (N[1] < N[0] && N[1] < N[2]){
+            T1 = Vector(N[2], 0., -N[0]);
+        }
+        else if (N[0] < N[1] && N[0] < N[2]){
+            T1 = Vector(0., N[2], -N[1]);
+        }
+        T1.normalize();
+        Vector T2 = cross(N, T1);
+
+        return x * T1 + y * T2 + z * N;
+    }
+Vector boxMuller(double stdev){
+    double r1 = uniform(engine);
+    double r2 = uniform(engine);
+    double x = sqrt(-2 * log(r1)) * cos(2 * PI * r2) * stdev;
+    double y = sqrt(-2 * log(r1)) * sin(2 * PI * r2) * stdev;
+    return Vector(x, y, 0.);
+}
 
 class Ray {
 public:
@@ -78,36 +122,267 @@ public:
         this->origin = origin;
     }
 };
- 
-class Sphere {
-public:
-    Vector center, albedo;
-    double radius, refractionIndex;
-    bool isMirror = false, isTransparent = false, invertNormal = false;
+Ray reflect(const Ray& incident, Vector P, const Vector& N){
+    P = P + EPS * N;
+    Vector reflectedDir = incident.direction - 2 * dot(incident.direction, N) * N;
+    reflectedDir.normalize();
+    Ray reflected(reflectedDir, P);
+    return reflected;
+}
 
-    Sphere(Vector center, Vector albedo, double radius, bool isMirror = false){
-        this->center = center;
+struct Intersection{
+    bool intersect;
+    Vector P;  // point of intersection
+    Vector N;  // normal to the surface at P
+    void *object;
+    double t; 
+    Intersection(){
+        object = nullptr;
+        intersect = false;
+        t = INT64_MAX;
+    }
+}; 
+
+class Geometry {
+    public:
+        double refractionIndex; 
+        Vector albedo;
+        bool isMirror, isTransparent, invertNormal;
+        virtual Intersection intersect(const Ray& ray) = 0; 
+        
+};
+
+
+// class TriangleMesh : Geometry{
+// public:
+//   ~TriangleMesh() {}
+// 	TriangleMesh() {};
+	
+// 	void readOBJ(const char* obj) {
+
+// 		char matfile[255];
+// 		char grp[255];
+
+// 		FILE* f;
+// 		f = fopen(obj, "r");
+// 		int curGroup = -1;
+// 		while (!feof(f)) {
+// 			char line[255];
+// 			if (!fgets(line, 255, f)) break;
+
+// 			std::string linetrim(line);
+// 			linetrim.erase(linetrim.find_last_not_of(" \r\t") + 1);
+// 			strcpy(line, linetrim.c_str());
+
+// 			if (line[0] == 'u' && line[1] == 's') {
+// 				sscanf(line, "usemtl %[^\n]\n", grp);
+// 				curGroup++;
+// 			}
+
+// 			if (line[0] == 'v' && line[1] == ' ') {
+// 				Vector vec;
+
+// 				Vector col;
+// 				if (sscanf(line, "v %lf %lf %lf %lf %lf %lf\n", &vec[0], &vec[1], &vec[2], &col[0], &col[1], &col[2]) == 6) {
+// 					col[0] = std::min(1., std::max(0., col[0]));
+// 					col[1] = std::min(1., std::max(0., col[1]));
+// 					col[2] = std::min(1., std::max(0., col[2]));
+
+// 					vertices.push_back(vec);
+// 					vertexcolors.push_back(col);
+
+// 				} else {
+// 					sscanf(line, "v %lf %lf %lf\n", &vec[0], &vec[1], &vec[2]);
+// 					vertices.push_back(vec);
+// 				}
+// 			}
+// 			if (line[0] == 'v' && line[1] == 'n') {
+// 				Vector vec;
+// 				sscanf(line, "vn %lf %lf %lf\n", &vec[0], &vec[1], &vec[2]);
+// 				normals.push_back(vec);
+// 			}
+// 			if (line[0] == 'v' && line[1] == 't') {
+// 				Vector vec;
+// 				sscanf(line, "vt %lf %lf\n", &vec[0], &vec[1]);
+// 				uvs.push_back(vec);
+// 			}
+// 			if (line[0] == 'f') {
+// 				TriangleIndices t;
+// 				int i0, i1, i2, i3;
+// 				int j0, j1, j2, j3;
+// 				int k0, k1, k2, k3;
+// 				int nn;
+// 				t.group = curGroup;
+
+// 				char* consumedline = line + 1;
+// 				int offset;
+
+// 				nn = sscanf(consumedline, "%u/%u/%u %u/%u/%u %u/%u/%u%n", &i0, &j0, &k0, &i1, &j1, &k1, &i2, &j2, &k2, &offset);
+// 				if (nn == 9) {
+// 					if (i0 < 0) t.vtxi = vertices.size() + i0; else	t.vtxi = i0 - 1;
+// 					if (i1 < 0) t.vtxj = vertices.size() + i1; else	t.vtxj = i1 - 1;
+// 					if (i2 < 0) t.vtxk = vertices.size() + i2; else	t.vtxk = i2 - 1;
+// 					if (j0 < 0) t.uvi = uvs.size() + j0; else	t.uvi = j0 - 1;
+// 					if (j1 < 0) t.uvj = uvs.size() + j1; else	t.uvj = j1 - 1;
+// 					if (j2 < 0) t.uvk = uvs.size() + j2; else	t.uvk = j2 - 1;
+// 					if (k0 < 0) t.ni = normals.size() + k0; else	t.ni = k0 - 1;
+// 					if (k1 < 0) t.nj = normals.size() + k1; else	t.nj = k1 - 1;
+// 					if (k2 < 0) t.nk = normals.size() + k2; else	t.nk = k2 - 1;
+// 					indices.push_back(t);
+// 				} else {
+// 					nn = sscanf(consumedline, "%u/%u %u/%u %u/%u%n", &i0, &j0, &i1, &j1, &i2, &j2, &offset);
+// 					if (nn == 6) {
+// 						if (i0 < 0) t.vtxi = vertices.size() + i0; else	t.vtxi = i0 - 1;
+// 						if (i1 < 0) t.vtxj = vertices.size() + i1; else	t.vtxj = i1 - 1;
+// 						if (i2 < 0) t.vtxk = vertices.size() + i2; else	t.vtxk = i2 - 1;
+// 						if (j0 < 0) t.uvi = uvs.size() + j0; else	t.uvi = j0 - 1;
+// 						if (j1 < 0) t.uvj = uvs.size() + j1; else	t.uvj = j1 - 1;
+// 						if (j2 < 0) t.uvk = uvs.size() + j2; else	t.uvk = j2 - 1;
+// 						indices.push_back(t);
+// 					} else {
+// 						nn = sscanf(consumedline, "%u %u %u%n", &i0, &i1, &i2, &offset);
+// 						if (nn == 3) {
+// 							if (i0 < 0) t.vtxi = vertices.size() + i0; else	t.vtxi = i0 - 1;
+// 							if (i1 < 0) t.vtxj = vertices.size() + i1; else	t.vtxj = i1 - 1;
+// 							if (i2 < 0) t.vtxk = vertices.size() + i2; else	t.vtxk = i2 - 1;
+// 							indices.push_back(t);
+// 						} else {
+// 							nn = sscanf(consumedline, "%u//%u %u//%u %u//%u%n", &i0, &k0, &i1, &k1, &i2, &k2, &offset);
+// 							if (i0 < 0) t.vtxi = vertices.size() + i0; else	t.vtxi = i0 - 1;
+// 							if (i1 < 0) t.vtxj = vertices.size() + i1; else	t.vtxj = i1 - 1;
+// 							if (i2 < 0) t.vtxk = vertices.size() + i2; else	t.vtxk = i2 - 1;
+// 							if (k0 < 0) t.ni = normals.size() + k0; else	t.ni = k0 - 1;
+// 							if (k1 < 0) t.nj = normals.size() + k1; else	t.nj = k1 - 1;
+// 							if (k2 < 0) t.nk = normals.size() + k2; else	t.nk = k2 - 1;
+// 							indices.push_back(t);
+// 						}
+// 					}
+// 				}
+
+// 				consumedline = consumedline + offset;
+
+// 				while (true) {
+// 					if (consumedline[0] == '\n') break;
+// 					if (consumedline[0] == '\0') break;
+// 					nn = sscanf(consumedline, "%u/%u/%u%n", &i3, &j3, &k3, &offset);
+// 					TriangleIndices t2;
+// 					t2.group = curGroup;
+// 					if (nn == 3) {
+// 						if (i0 < 0) t2.vtxi = vertices.size() + i0; else	t2.vtxi = i0 - 1;
+// 						if (i2 < 0) t2.vtxj = vertices.size() + i2; else	t2.vtxj = i2 - 1;
+// 						if (i3 < 0) t2.vtxk = vertices.size() + i3; else	t2.vtxk = i3 - 1;
+// 						if (j0 < 0) t2.uvi = uvs.size() + j0; else	t2.uvi = j0 - 1;
+// 						if (j2 < 0) t2.uvj = uvs.size() + j2; else	t2.uvj = j2 - 1;
+// 						if (j3 < 0) t2.uvk = uvs.size() + j3; else	t2.uvk = j3 - 1;
+// 						if (k0 < 0) t2.ni = normals.size() + k0; else	t2.ni = k0 - 1;
+// 						if (k2 < 0) t2.nj = normals.size() + k2; else	t2.nj = k2 - 1;
+// 						if (k3 < 0) t2.nk = normals.size() + k3; else	t2.nk = k3 - 1;
+// 						indices.push_back(t2);
+// 						consumedline = consumedline + offset;
+// 						i2 = i3;
+// 						j2 = j3;
+// 						k2 = k3;
+// 					} else {
+// 						nn = sscanf(consumedline, "%u/%u%n", &i3, &j3, &offset);
+// 						if (nn == 2) {
+// 							if (i0 < 0) t2.vtxi = vertices.size() + i0; else	t2.vtxi = i0 - 1;
+// 							if (i2 < 0) t2.vtxj = vertices.size() + i2; else	t2.vtxj = i2 - 1;
+// 							if (i3 < 0) t2.vtxk = vertices.size() + i3; else	t2.vtxk = i3 - 1;
+// 							if (j0 < 0) t2.uvi = uvs.size() + j0; else	t2.uvi = j0 - 1;
+// 							if (j2 < 0) t2.uvj = uvs.size() + j2; else	t2.uvj = j2 - 1;
+// 							if (j3 < 0) t2.uvk = uvs.size() + j3; else	t2.uvk = j3 - 1;
+// 							consumedline = consumedline + offset;
+// 							i2 = i3;
+// 							j2 = j3;
+// 							indices.push_back(t2);
+// 						} else {
+// 							nn = sscanf(consumedline, "%u//%u%n", &i3, &k3, &offset);
+// 							if (nn == 2) {
+// 								if (i0 < 0) t2.vtxi = vertices.size() + i0; else	t2.vtxi = i0 - 1;
+// 								if (i2 < 0) t2.vtxj = vertices.size() + i2; else	t2.vtxj = i2 - 1;
+// 								if (i3 < 0) t2.vtxk = vertices.size() + i3; else	t2.vtxk = i3 - 1;
+// 								if (k0 < 0) t2.ni = normals.size() + k0; else	t2.ni = k0 - 1;
+// 								if (k2 < 0) t2.nj = normals.size() + k2; else	t2.nj = k2 - 1;
+// 								if (k3 < 0) t2.nk = normals.size() + k3; else	t2.nk = k3 - 1;								
+// 								consumedline = consumedline + offset;
+// 								i2 = i3;
+// 								k2 = k3;
+// 								indices.push_back(t2);
+// 							} else {
+// 								nn = sscanf(consumedline, "%u%n", &i3, &offset);
+// 								if (nn == 1) {
+// 									if (i0 < 0) t2.vtxi = vertices.size() + i0; else	t2.vtxi = i0 - 1;
+// 									if (i2 < 0) t2.vtxj = vertices.size() + i2; else	t2.vtxj = i2 - 1;
+// 									if (i3 < 0) t2.vtxk = vertices.size() + i3; else	t2.vtxk = i3 - 1;
+// 									consumedline = consumedline + offset;
+// 									i2 = i3;
+// 									indices.push_back(t2);
+// 								} else {
+// 									consumedline = consumedline + 1;
+// 								}
+// 							}
+// 						}
+// 					}
+// 				}
+
+// 			}
+
+// 		}
+// 		fclose(f);
+
+// 	}
+
+//     bool intersect(const Ray& ray, Vector& P, Vector& N, double& t){
+//         return true; 
+//     }
+//     Vector computeColor(double lightIntensity, const Vector& lightSource, const Vector& P, const Vector& N, const Vector& albedo) {
+//         return Vector(0., 0., 0.);
+//     }
+// 	std::vector<TriangleIndices> indices;
+// 	std::vector<Vector> vertices;
+// 	std::vector<Vector> normals;
+// 	std::vector<Vector> uvs;
+// 	std::vector<Vector> vertexcolors;
+	
+// };
+
+class Sphere : Geometry{
+public:
+    Vector center;
+    double radius;
+
+    // Sphere(Vector center, Vector albedo, double radius, bool isMirror = false){
+    //     this->center = center;
+    //     this->albedo = albedo;
+    //     this->radius = radius;
+    //     this->isMirror = isMirror;
+    // }
+    // Sphere(Vector center, double radius){ // Mirrors
+    //     this->center = center;
+    //     this->radius = radius;
+    //     this->isMirror = true;
+    // }
+    // Sphere(Vector center, double radius, double refractionIndex, bool invertNormal = false){ // Transparent
+    //     this->center = center;
+    //     this->radius = radius;
+    //     this->isTransparent = true;
+    //     this->refractionIndex = refractionIndex;
+    //     this->invertNormal = invertNormal;
+    // }
+
+    Sphere(Vector center, double radius, Vector albedo, bool isMirror) : center{center}, radius{radius}{
         this->albedo = albedo;
-        this->radius = radius;
         this->isMirror = isMirror;
     }
-    Sphere(Vector center, double radius){ // Mirrors
-        this->center = center;
-        this->radius = radius;
-        this->isMirror = true;
-    }
-    Sphere(Vector center, double radius, double refractionIndex, bool invertNormal = false){ // Transparent
-        this->center = center;
-        this->radius = radius;
-        this->isTransparent = true;
-        this->refractionIndex = refractionIndex;
-        this->invertNormal = invertNormal;
-    }
-    bool intersect(const Ray &ray, Vector& P, Vector& N, double& t){
+
+    Intersection intersect(const Ray &ray){
+        Vector P, N;
+        double t;
+        Intersection info;
         Vector temp = ray.origin - this->center;
         double delta = square(dot(ray.direction, temp)) - (temp.norm2() - square(this->radius));
         if (delta < 0){
-            return false;
+            return info;
         }
         double sqrt_delta = sqrt(delta);
         t = dot(ray.direction, temp * -1) - sqrt_delta;
@@ -115,16 +390,16 @@ public:
             t += 2 * sqrt_delta;
         }
         if (t < 0 ){
-            return false;
+            return info;
         }
         P = ray.origin + t * ray.direction;
         N = getNormal(P);
-        return true;
-    }
-    Vector computeColor(double lightIntensity, const Vector& lightSource, const Vector& P, const Vector& N){
-        Vector tmp = lightSource - P; 
-        return lightIntensity / (4 * PI * tmp.norm2() * PI) * std::max(0., dot(N, (1 / tmp.norm()) * tmp)) * this->albedo;
-
+        info.P = P;
+        info.N = N;
+        info.t = t;
+        info.object = (void *)this;
+        info.intersect = true;
+        return info;
     }
     Vector getNormal(const Vector& P){
         Vector N = P - this->center;
@@ -134,115 +409,105 @@ public:
 
 };
 
-Vector boxMuller(double stdev){
-    double r1 = uniform(engine);
-    double r2 = uniform(engine);
-    double x = sqrt(-2 * log(r1)) * cos(2 * PI * r2) * stdev;
-    double y = sqrt(-2 * log(r1)) * sin(2 * PI * r2) * stdev;
-    return Vector(x, y, 0.);
-}
 
-Vector randomVect(const Vector& N){
-        double r1 = uniform(engine);
-        double r2 = uniform(engine);
-        double x = cos(2 * PI * r1) * sqrt(1 - r2);
-        double y = sin(2 * PI * r1) * sqrt(1 - r2);
-        double z = sqrt(r2);
 
-        Vector T1(-N[1], N[0], 0);
-        T1.normalize();
-        Vector T2 = cross(N, T1);
 
-        return x * T1 + y * T2 + z * N;
-    }
 
 class Scene {
 public:
     Vector lightSource;
     double lightIntensity;
-    std::vector<Sphere> objects;
-    double epsilon = 0.001;
-    Scene(double lightIntensity, Vector lightSource){
+    std::vector<Geometry*> objects;
+    int recursionDepth;
+    Scene(double lightIntensity, Vector lightSource, int recursionDepth = 5){
         this->lightSource = lightSource;
         this->lightIntensity = lightIntensity;
+        this->recursionDepth = recursionDepth;
     }
-    void addObject(Sphere S){
+    void addObject(Geometry* S){
         objects.push_back(S);
     }
-    bool intersect(const Ray& ray, Vector& P, Vector& N, size_t& sphere_id){
-        Vector Ptemp, Ntemp;
-        double t = INT64_MAX, t_temp;
-        bool intersected = false; 
+    Intersection intersect(const Ray& ray){
+        Intersection info;
         for (size_t i = 0; i < size(objects); ++i){
-            if (objects[i].intersect(ray, Ptemp, Ntemp, t_temp)){
-                intersected = true;
-                if (t_temp < t){
-                    t = t_temp;
-                    P = Ptemp;
-                    N = Ntemp;
-                    sphere_id = i;
-                }
+            Intersection infoTemp = objects[i]->intersect(ray);
+            if (infoTemp.intersect && infoTemp.t < info.t){
+                info = infoTemp;
             }
-           
         }
-        return intersected;
+        return info;
     }
-    Ray reflect(const Ray& incident, Vector& P, const Vector& N){
-        P = P + epsilon * N;
-        Vector reflectedDir = incident.direction - 2 * dot(incident.direction, N) * N;
-        reflectedDir.normalize();
-        Ray reflected(reflectedDir, P);
-        return reflected;
+    Vector directLighting(const Intersection& info){
+        Vector P = info.P, N = info.N;
+        P = P + EPS * N;
+
+        Vector rayDir = lightSource - P;
+        rayDir.normalize();
+
+        Ray PtoL(rayDir, P);
+        Intersection info2 = intersect(PtoL);
+
+        if (info2.intersect && (lightSource - P).norm2() > (info2.P - P).norm2()){
+            return Vector(0., 0., 0.);
+        }
+        else{
+            Vector tmp = lightSource - P; 
+            return lightIntensity / (4 * PI * tmp.norm2() * PI) * std::max(0., dot(N, (1 / tmp.norm()) * tmp)) * ((Geometry *)info.object)->albedo;
+        }
+
+        
     }
-    Vector getColor(const Ray& ray, int recDepth){
+    Vector getColor(const Ray& ray){
+        return getColorRec(ray, recursionDepth);
+    }
+    Vector getColorRec(const Ray& ray, int recDepth){
         if (recDepth == 0){
             return Vector(0., 0., 0.);
         }
-        Vector N, P;
-        size_t sphere_id;
-        if (this->intersect(ray, P, N, sphere_id)){
-           
-            if(this->objects[sphere_id].isMirror){
-                return getColor(reflect(ray, P, N), recDepth - 1);
+        Intersection info = intersect(ray);
+        if (info.intersect){
+            if(((Geometry *)info.object)->isMirror){
+                return getColorRec(reflect(ray, info.P, info.N), recDepth - 1);
             }
-            if(this->objects[sphere_id].isTransparent){
-                double dotProd = dot(ray.direction, N);
-                Sphere &obj = std::ref(this->objects[sphere_id]);
-                double ratio = 1 / obj.refractionIndex;
-                if (dotProd > 0){
-                    N = -1 * N;
-                    ratio = 1 / ratio;
-                }
-                if (obj.invertNormal){
-                    ratio = 1 / ratio;
-                }
-                double temp = std::max(1 - std::pow(ratio, 2) * (1 - std::pow(dot(ray.direction, N), 2)), 0.);
-                if (temp < 0){
-                    return getColor(reflect(ray, P, N), recDepth - 1);
-                    //return Vector(0., 0., 0.);
-                }
-                Vector tangential = ratio * (ray.direction - dot(ray.direction, N) * N);
-                Vector normal = -sqrt(temp) * N;
-                P = P - epsilon * N;
-                Vector transmittedDir = tangential + normal;
-                transmittedDir.normalize();
-                Ray transmitted(transmittedDir, P);
-                return getColor(transmitted, recDepth - 1);
-            }
-            P = P + epsilon * N;
-            Vector P2, N2;
-            size_t si;
-            Vector rayDir = this->lightSource - P;
-            rayDir.normalize();
-            Ray rayPL(rayDir, P);
-            Vector col;
-            if (this->intersect(rayPL, P2, N2, si) && (this->lightSource - P).norm2() > (P2 - P).norm2()){
-                col = Vector(0., 0., 0.);
-            }
-            else{
-                col = objects[sphere_id].computeColor(this->lightIntensity, this->lightSource, P, N);
-            }
-            return col + (objects[sphere_id].albedo * getColor(Ray(randomVect(N), P), recDepth - 1));
+            // if(this->objects[sphere_id]->isTransparent){
+            //     double dotProd = dot(ray.direction, N);
+            //     Geometry* obj = this->objects[sphere_id];
+            //     double ratio = 1 / obj->refractionIndex;
+            //     if (dotProd > 0){
+            //         N = -1 * N;
+            //         ratio = 1 / ratio;
+            //     }
+            //     if (obj->invertNormal){
+            //         ratio = 1 / ratio;
+            //     }
+            //     double temp = std::max(1 - std::pow(ratio, 2) * (1 - std::pow(dot(ray.direction, N), 2)), 0.);
+            //     if (temp < 0){
+            //         return getColor(reflect(ray, P, N), recDepth - 1);
+            //         //return Vector(0., 0., 0.);
+            //     }
+            //     Vector tangential = ratio * (ray.direction - dot(ray.direction, N) * N);
+            //     Vector normal = -sqrt(temp) * N;
+            //     P = P - EPS * N;
+            //     Vector transmittedDir = tangential + normal;
+            //     transmittedDir.normalize();
+            //     Ray transmitted(transmittedDir, P);
+            //     return getColor(transmitted, recDepth - 1);
+            // }
+            // P = P + EPS * N;
+            // Vector P2, N2;
+            // size_t si;
+            // Vector rayDir = this->lightSource - P;
+            // rayDir.normalize();
+            // Ray rayPL(rayDir, P);
+            // Vector col;
+            // if (this->intersect(rayPL, P2, N2, si) && (this->lightSource - P).norm2() > (P2 - P).norm2()){
+            //     col = Vector(0., 0., 0.);
+            // }
+            // else{
+            //     col = objects[sphere_id]->computeColor(this->lightIntensity, this->lightSource, P, N);
+            // }
+            Vector col = directLighting(info);
+            return col + (((Geometry *)info.object)->albedo * getColorRec(Ray(randomVect(info.N), info.P + EPS * info.N), recDepth - 1));
         }
         return Vector(0., 0., 0.);
     }
@@ -256,19 +521,35 @@ int main() {
     int H = 512;
     Vector camera_pos = Vector(0., 0., 55.); 
     double angle = PI / 3.;
-    Scene scene = Scene(1E10, Vector(-10., 20., 40.));
-    scene.addObject(Sphere(Vector(-20., 0., 0.), 10.));
-    scene.addObject(Sphere(Vector(0., 0., 0.), 10., 1.5));
-    scene.addObject(Sphere(Vector(20., 0., 0.), 9., 1.5, true));
-    scene.addObject(Sphere(Vector(20., 0., 0.), 10., 1.5));
-    scene.addObject(Sphere(Vector(0., 1000., 0.), Vector(1., 0., 0.), 940.));
-    scene.addObject(Sphere(Vector(0., 0., 1000.), Vector(1., 0.5, 0.5), 940.));
-    scene.addObject(Sphere(Vector(0., 0., -1000.), Vector(0., 1., 0.), 940.));
-    scene.addObject(Sphere(Vector(0., -1000., 0.), Vector(0., 0., 1.), 990.));
-    scene.addObject(Sphere(Vector(1000., 0., 0.), Vector(1., 1., 0.), 940.));
-    scene.addObject(Sphere(Vector(-1000., 0., 0.), Vector(0.5, 0.5, 1.), 940.));
+    Scene scene = Scene(1E10, Vector(-10., 20., 40.), 5);
+
+    Sphere diffuseSphere = Sphere(Vector(0., 0., 0.), 10., Vector(0., 0., 0.5), false);
+    scene.addObject((Geometry*)&diffuseSphere);
+
+    Sphere leftWall = Sphere(Vector(-1000., 0., 0.), 940., Vector(0.5, 0.5, 1.), false);
+    scene.addObject((Geometry *) &leftWall);
+
+    Sphere rightWall = Sphere(Vector(1000., 0., 0.), 940., Vector(1., 1., 0.), false);
+    scene.addObject((Geometry *) &rightWall);
+
+    Sphere topWall = Sphere(Vector(0., 1000., 0.), 940., Vector(1., 0., 0.), false);
+    scene.addObject((Geometry *) &topWall);
+
+    Sphere bottomWall = Sphere(Vector(0., -1000., 0.), 990., Vector(0., 0., 1.), false);
+    scene.addObject((Geometry *) &bottomWall);
+
+    Sphere frontWall = Sphere(Vector(0., 0., -1000.), 940., Vector(0., 1., 0.), false);
+    scene.addObject((Geometry *) &frontWall);
+
+    Sphere backWall = Sphere(Vector(0., 0., 1000.), 940., Vector(1., 0.5, 0.5), false);
+    scene.addObject((Geometry *) &backWall);
+
+    // scene.addObject(Sphere(Vector(0., 0., 0.), 10., 1.5));
+    // scene.addObject(Sphere(Vector(20., 0., 0.), 9., 1.5, true));
+    // scene.addObject(Sphere(Vector(20., 0., 0.), 10., 1.5));
+    
     std::vector<unsigned char> image(W * H * 3, 0);
-    int REC_DEPTH = 10;
+    
     int ray_count = 32;
 #pragma omp parallel for schedule(dynamic, 1)
     for (int i = 0; i < H; i++) {
@@ -279,7 +560,7 @@ int main() {
                 Vector ray_dir = Vector(j - W / 2 + 0.5, H / 2 - i - 0.5, - W / (2 * tan(angle / 2))) + boxMuller(1);
                 ray_dir.normalize();
                 Ray ray = Ray(ray_dir, camera_pos);
-                col = col + scene.getColor(ray, REC_DEPTH);
+                col = col + scene.getColor(ray);
             }
             col = col / ray_count;
             image[(i * W + j) * 3 + 0] = (unsigned char) std::min(255., std::pow(col[0], 1 / 2.2));
