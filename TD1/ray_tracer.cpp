@@ -186,21 +186,27 @@ class BoundingBox {
 
             if (ts[0] < ts[1]){
                 mint1 = ts[1];
+                maxt0 = ts[0];
             }
             else{
-                maxt0 = ts[0];
+                maxt0 = ts[1];
+                mint1 = ts[0];
             }
             if (ts[2] < ts[3]){
                 mint1 = std::min(mint1, ts[3]);
+                maxt0 = std::max(maxt0, ts[2]);
             }
             else{
-                maxt0 = std::max(maxt0, ts[2]);
+                maxt0 = std::max(maxt0, ts[3]);
+                mint1 = std::min(mint1, ts[2]);
             }
             if (ts[4] < ts[5]){
                 mint1 = std::min(mint1, ts[5]);
+                maxt0 = std::max(maxt0, ts[4]);
             }
             else{
-                maxt0 = std::max(maxt0, ts[4]);
+                maxt0 = std::max(maxt0, ts[5]);
+                mint1 = std::min(mint1, ts[4]);
             }
             
             return mint1 > maxt0;
@@ -233,6 +239,18 @@ public:
         this->albedo = Vector(0.1, 0.3, 0.5);
         this->isMirror = false;
     };
+
+    void translateMesh(Vector translationVector){
+        for (int i = 0; i < vertices.size(); ++i){
+            vertices[i] = vertices[i] + translationVector;
+        }
+    }
+
+    void scaleMesh(double scale){
+        for (int i = 0; i < vertices.size(); ++i){
+            vertices[i] = vertices[i] * scale;
+        }
+    }
 
     void computeBoundingBox(){
         Vector &B_max = bbox.B_max;
@@ -544,7 +562,7 @@ public:
     }
     Intersection intersect(const Ray& ray){
         Intersection info;
-        for (size_t i = 0; i < size(objects); ++i){
+        for (size_t i = 0; i < objects.size(); ++i){
             Intersection infoTemp = objects[i]->intersect(ray);
             if (infoTemp.intersect && infoTemp.t < info.t){
                 info = infoTemp;
@@ -626,8 +644,17 @@ int main() {
     double angle = PI / 3.;
     Scene scene = Scene(1E10, Vector(-10., 20., 40.), 5);
 
-    Sphere diffuseSphere = Sphere(Vector(0., 0., 0.), 10., Vector(0., 0., 0.5), false);
-    scene.addObject((Geometry*)&diffuseSphere);
+    // Sphere diffuseSphere = Sphere(Vector(0., 0., 0.), 10., Vector(0., 0., 0.5), false);
+    // scene.addObject((Geometry*)&diffuseSphere);
+
+    TriangleMesh cat;
+    cat.readOBJ("../CSE306/objs/cat.obj");
+    cat.translateMesh(Vector(0., -10., 0.));
+    cat.scaleMesh(0.6);
+    cat.computeBoundingBox();
+    scene.addObject((Geometry *) &cat);
+
+    
 
     Sphere leftWall = Sphere(Vector(-1000., 0., 0.), 940., Vector(0.5, 0.5, 1.), false);
     scene.addObject((Geometry *) &leftWall);
@@ -654,7 +681,7 @@ int main() {
     
     std::vector<unsigned char> image(W * H * 3, 0);
     
-    int ray_count = 32;
+    int ray_count = 5;
 #pragma omp parallel for schedule(dynamic, 1)
     for (int i = 0; i < H; i++) {
         for (int j = 0; j < W; j++) {
