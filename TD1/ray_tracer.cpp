@@ -139,7 +139,7 @@ struct Intersection{
     Intersection(){
         object = nullptr;
         intersect = false;
-        t = INT64_MAX;
+        t = std::numeric_limits<double>::max();
     }
 }; 
 
@@ -150,8 +150,8 @@ class BoundingBox {
         Vector B_max;
 
         BoundingBox(){
-            B_min = Vector(INT64_MAX, INT64_MAX, INT64_MAX);
-            B_max = Vector(INT64_MIN, INT64_MIN, INT64_MIN);
+            B_min = Vector(std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), std::numeric_limits<double>::max());
+            B_max = Vector(std::numeric_limits<double>::min(), std::numeric_limits<double>::min(), std::numeric_limits<double>::min());
         }
         BoundingBox(Vector B_min, Vector B_max) : B_min{B_min}, B_max{B_max}{}
         
@@ -272,7 +272,7 @@ public:
         if (!bbox.intersect(ray)){
             return info;
         }
-        double alpha, beta, gamma, t = INT64_MAX, alphaTemp, betaTemp, gammaTemp, tTemp;
+        double alpha, beta, gamma, t = std::numeric_limits<double>::max(), alphaTemp, betaTemp, gammaTemp, tTemp;
         size_t intersectionIndex;
         
         for (size_t i = 0; i < indices.size(); ++i){
