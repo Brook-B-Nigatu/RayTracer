@@ -231,7 +231,7 @@ class BVH {
     public:
         BoundingBox bbox;
         BVH *left;
-        BVH *right;
+        BVH *rightss;
 };
 
 class Geometry {
