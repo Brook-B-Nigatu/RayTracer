@@ -154,6 +154,17 @@ class BoundingBox {
             B_max = Vector(std::numeric_limits<double>::min(), std::numeric_limits<double>::min(), std::numeric_limits<double>::min());
         }
         BoundingBox(Vector B_min, Vector B_max) : B_min{B_min}, B_max{B_max}{}
+
+        int getLongestAxis(){
+            Vector diff = B_max - B_min;
+            if (diff[0] <= diff[1] && diff[0] <= diff[2]){
+                return 0;
+            }
+            else if (diff[1] <= diff[0] && diff[1] <= diff[2]){
+                return 1;
+            }
+            return 2;
+        }
         
         bool intersect(const Ray& ray){
             bool originInBox = true;
@@ -216,6 +227,13 @@ class BoundingBox {
 
 };
 
+class BVH {
+    public:
+        BoundingBox bbox;
+        BVH *left;
+        BVH *right;
+};
+
 class Geometry {
     public:
         double refractionIndex; 
@@ -236,7 +254,7 @@ public:
     BoundingBox bbox;
     ~TriangleMesh() {}
 	TriangleMesh() {
-        this->albedo = Vector(0.1, 0.3, 0.5);
+        this->albedo = Vector(0.3, 0.2, 0.25);
         this->isMirror = false;
     };
 
@@ -251,6 +269,7 @@ public:
             vertices[i] = vertices[i] * scale;
         }
     }
+
 
     void computeBoundingBox(){
         Vector &B_max = bbox.B_max;
@@ -293,6 +312,7 @@ public:
         TriangleIndices &ti = indices[intersectionIndex];
         info.P = alpha * vertices[ti.vtxi] + beta * vertices[ti.vtxj] + gamma * vertices[ti.vtxk];
         info.N = alpha * normals[ti.ni] + beta * normals[ti.nj] + gamma * normals[ti.nk];
+        info.N.normalize();
         
         return info;
 
@@ -642,14 +662,14 @@ int main() {
     int H = 512;
     Vector camera_pos = Vector(0., 0., 55.); 
     double angle = PI / 3.;
-    Scene scene = Scene(1E10, Vector(-10., 20., 40.), 5);
+    Scene scene = Scene(3E10, Vector(-10., 20., 40.), 5);
 
     // Sphere diffuseSphere = Sphere(Vector(0., 0., 0.), 10., Vector(0., 0., 0.5), false);
     // scene.addObject((Geometry*)&diffuseSphere);
 
     TriangleMesh cat;
     cat.readOBJ("../CSE306/objs/cat.obj");
-    cat.translateMesh(Vector(0., -10., 0.));
+    cat.translateMesh(Vector(0., -17., 0.));
     cat.scaleMesh(0.6);
     cat.computeBoundingBox();
     scene.addObject((Geometry *) &cat);
