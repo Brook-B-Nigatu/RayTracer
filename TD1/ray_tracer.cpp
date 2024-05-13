@@ -11,6 +11,7 @@
 #include <iostream>
 #define PI 3.1415296
 #define EPS 0.001
+#define BVH_LEAF_THRESHOLD 4
 
 #include <random>
 static std::default_random_engine engine (10); // random seed = 10
@@ -144,94 +145,108 @@ struct Intersection{
 }; 
 
 
-class BoundingBox {
-    public:
-        Vector B_min;
-        Vector B_max;
+struct BoundingBox {
+    
+    Vector B_min;
+    Vector B_max;
 
-        BoundingBox(){
-            B_min = Vector(std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), std::numeric_limits<double>::max());
-            B_max = Vector(std::numeric_limits<double>::min(), std::numeric_limits<double>::min(), std::numeric_limits<double>::min());
+    BoundingBox(){
+        B_min = Vector(std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), std::numeric_limits<double>::max());
+        B_max = Vector(std::numeric_limits<double>::min(), std::numeric_limits<double>::min(), std::numeric_limits<double>::min());
+    }
+    BoundingBox(Vector B_min, Vector B_max) : B_min{B_min}, B_max{B_max}{}
+
+    int getLongestAxis(){
+        Vector diff = B_max - B_min;
+        if (diff[0] <= diff[1] && diff[0] <= diff[2]){
+            return 0;
         }
-        BoundingBox(Vector B_min, Vector B_max) : B_min{B_min}, B_max{B_max}{}
-
-        int getLongestAxis(){
-            Vector diff = B_max - B_min;
-            if (diff[0] <= diff[1] && diff[0] <= diff[2]){
-                return 0;
-            }
-            else if (diff[1] <= diff[0] && diff[1] <= diff[2]){
-                return 1;
-            }
-            return 2;
+        else if (diff[1] <= diff[0] && diff[1] <= diff[2]){
+            return 1;
         }
-        
-        bool intersect(const Ray& ray){
-            bool originInBox = true;
-            
-            for (int i = 0; i < 3; ++i){
-                if (ray.origin[i] < B_min[i] || ray.origin[i] > B_max[i]){
-                    originInBox = false;
-                    break;
-                }
-            }
-            if (originInBox){
-                return true;
-            }
-            if (ray.direction[0] == 0 || ray.direction[1] == 0 || ray.direction[2] == 0){
-                return false;
-            }
+        return 2;
+    }
+    
+    bool intersect(const Ray& ray, double& t){
+        bool originInBox = true;
 
-            double ts[6];
-            for (int i = 0; i < 6; ++i){
-                int j = i / 2;
-                if (i % 2 == 0){
-                    ts[i] = (B_min[j] - ray.origin[j]) / ray.direction[j];
+        double ts[6];
+        for (int i = 0; i < 6; ++i){
+            int j = i / 2;
+            if (i % 2 == 0){
+                if (ray.direction[j] == 0.){
+                    if (ray.origin[j] >= B_min[j] && ray.origin[j] <= B_max[j]){
+                        ts[i] = std::numeric_limits<double>::min();
+                        ts[i + 1] = std::numeric_limits<double>::max();
+                    }   
+                    else{
+                        return false;
+                    }
+                    continue;
                 }
-                else{
-                    ts[i] = (B_max[j] - ray.origin[j]) / ray.direction[j];
-                }
-            }
-
-            double mint1, maxt0;
-
-            if (ts[0] < ts[1]){
-                mint1 = ts[1];
-                maxt0 = ts[0];
+                ts[i] = (B_min[j] - ray.origin[j]) / ray.direction[j];
             }
             else{
-                maxt0 = ts[1];
-                mint1 = ts[0];
+                if (ray.direction[j] == 0.){
+                    continue;
+                }
+                ts[i] = (B_max[j] - ray.origin[j]) / ray.direction[j];
             }
-            if (ts[2] < ts[3]){
-                mint1 = std::min(mint1, ts[3]);
-                maxt0 = std::max(maxt0, ts[2]);
-            }
-            else{
-                maxt0 = std::max(maxt0, ts[3]);
-                mint1 = std::min(mint1, ts[2]);
-            }
-            if (ts[4] < ts[5]){
-                mint1 = std::min(mint1, ts[5]);
-                maxt0 = std::max(maxt0, ts[4]);
-            }
-            else{
-                maxt0 = std::max(maxt0, ts[5]);
-                mint1 = std::min(mint1, ts[4]);
-            }
-            
-            return mint1 > maxt0;
-
         }
+
+        double mint1, maxt0;
+
+        if (ts[0] < ts[1]){
+            mint1 = ts[1];
+            maxt0 = ts[0];
+        }
+        else{
+            maxt0 = ts[1];
+            mint1 = ts[0];
+        }
+        if (ts[2] < ts[3]){
+            mint1 = std::min(mint1, ts[3]);
+            maxt0 = std::max(maxt0, ts[2]);
+        }
+        else{
+            maxt0 = std::max(maxt0, ts[3]);
+            mint1 = std::min(mint1, ts[2]);
+        }
+        if (ts[4] < ts[5]){
+            mint1 = std::min(mint1, ts[5]);
+            maxt0 = std::max(maxt0, ts[4]);
+        }
+        else{
+            maxt0 = std::max(maxt0, ts[5]);
+            mint1 = std::min(mint1, ts[4]);
+        }
+        t = maxt0;
+        return mint1 > maxt0;
+
+    }
 
 
 };
 
-class BVH {
-    public:
-        BoundingBox bbox;
-        BVH *left;
-        BVH *rightss;
+struct BVH {
+    BoundingBox bbox;
+    BVH *left;
+    BVH *right;
+    size_t start;
+    size_t end;
+    BVH(){
+        start = 0;
+        end = 0;
+        left = nullptr;
+        right = nullptr;
+    }
+    bool isLeaf(){
+        return left == nullptr; 
+    }
+    ~BVH(){
+        delete left;
+        delete right;
+    }
 };
 
 class Geometry {
@@ -251,8 +266,8 @@ public:
 	std::vector<Vector> normals;
 	std::vector<Vector> uvs;
 	std::vector<Vector> vertexcolors;
-    BoundingBox bbox;
-    ~TriangleMesh() {}
+    BVH *bvh;
+    ~TriangleMesh() {delete bvh;}
 	TriangleMesh() {
         this->albedo = Vector(0.3, 0.2, 0.25);
         this->isMirror = false;
@@ -270,41 +285,124 @@ public:
         }
     }
 
-
-    void computeBoundingBox(){
+    BoundingBox computeBoundingBox(size_t start, size_t end){
+        BoundingBox bbox;
         Vector &B_max = bbox.B_max;
         Vector &B_min = bbox.B_min;
-        for(const Vector &vertex : vertices){
+        for(size_t i = start; i < end; ++i){
+            const TriangleIndices& inds = indices[i];
 
-            B_max[0] = std::max(B_max[0], vertex[0]);
-            B_max[1] = std::max(B_max[1], vertex[1]);
-            B_max[2] = std::max(B_max[2], vertex[2]);
+            B_max[0] = std::max(B_max[0], vertices[inds.vtxi][0]);
+            B_max[0] = std::max(B_max[0], vertices[inds.vtxj][0]);
+            B_max[0] = std::max(B_max[0], vertices[inds.vtxk][0]);
 
-            B_min[0] = std::min(B_min[0], vertex[0]);
-            B_min[1] = std::min(B_min[1], vertex[1]);
-            B_min[2] = std::min(B_min[2], vertex[2]);
+            B_max[1] = std::max(B_max[1], vertices[inds.vtxi][1]);
+            B_max[1] = std::max(B_max[1], vertices[inds.vtxj][1]);
+            B_max[1] = std::max(B_max[1], vertices[inds.vtxk][1]);
+
+            B_max[2] = std::max(B_max[2], vertices[inds.vtxi][2]);
+            B_max[2] = std::max(B_max[2], vertices[inds.vtxj][2]);
+            B_max[2] = std::max(B_max[2], vertices[inds.vtxk][2]);
+
+            B_min[0] = std::min(B_min[0], vertices[inds.vtxi][0]);
+            B_min[0] = std::min(B_min[0], vertices[inds.vtxj][0]);
+            B_min[0] = std::min(B_min[0], vertices[inds.vtxk][0]);
+
+            B_min[1] = std::min(B_min[1], vertices[inds.vtxi][1]);
+            B_min[1] = std::min(B_min[1], vertices[inds.vtxj][1]);
+            B_min[1] = std::min(B_min[1], vertices[inds.vtxk][1]);
+
+            B_min[2] = std::min(B_min[2], vertices[inds.vtxi][2]);
+            B_min[2] = std::min(B_min[2], vertices[inds.vtxj][2]);
+            B_min[2] = std::min(B_min[2], vertices[inds.vtxk][2]);
         }
+        return bbox;
+    }
+
+    void computeBVH(){
+        size_t start = 0, end = indices.size();
+        bvh = computeBVHAux(start, end);
+    }
+
+    BVH* computeBVHAux(size_t start, size_t end){
+        BVH *res = new BVH();
+        res->bbox = computeBoundingBox(start, end);
+        res->start = start;
+        res->end = end;
+
+        if (end - start <= BVH_LEAF_THRESHOLD){
+            return res;
+        }
+
+        int longestAxis = res->bbox.getLongestAxis();
+        double cutoff = (res->bbox.B_max[longestAxis] + res->bbox.B_min[longestAxis]) / 2;
+
+        size_t pivot = start;
+
+        for (size_t i = start; i < end; ++i){
+            const TriangleIndices &inds = indices[i];
+            double bcenterPos = (vertices[inds.vtxi][longestAxis] + vertices[inds.vtxj][longestAxis] + vertices[inds.vtxk][longestAxis]) / 3;
+            if (bcenterPos <= cutoff){
+                std::swap(indices[i], indices[pivot]);
+                ++pivot;
+            }       
+        }
+        if (pivot == start || pivot == end){
+            return res;
+        }
+        res->left = computeBVHAux(start, pivot);
+        res->right = computeBVHAux(pivot, end);
+        return res;
     }
 	
     Intersection intersect(const Ray& ray) override {
         Intersection info;
-        if (!bbox.intersect(ray)){
-            return info;
-        }
         double alpha, beta, gamma, t = std::numeric_limits<double>::max(), alphaTemp, betaTemp, gammaTemp, tTemp;
         size_t intersectionIndex;
-        
-        for (size_t i = 0; i < indices.size(); ++i){
-            if (mollerTrumbore(ray, indices[i], alphaTemp, betaTemp, gammaTemp, tTemp) && tTemp < t){
-                alpha = alphaTemp;
-                beta = betaTemp;
-                gamma = gammaTemp;
-                t = tTemp;
-                intersectionIndex = i;
-                info.intersect = true;
-                info.object = (void *) this;
-            }
+
+        std::vector<BVH*> stack;
+        if (bvh->bbox.intersect(ray, tTemp)){
+            stack.push_back(bvh);
         }
+
+        while (!stack.empty()){
+            BVH* curr = stack.back();
+            stack.pop_back();
+            if (!curr->isLeaf()){
+                double left_t, right_t;
+                bool left, right;
+
+                left = curr->left->bbox.intersect(ray, left_t) && left_t < t;
+                right = curr->right->bbox.intersect(ray, right_t) && right_t < t;
+
+                if (left)
+                    stack.push_back(curr->left);
+
+                if (right)
+                    stack.push_back(curr->right);
+
+                if (left && right && right_t > left_t){
+                    size_t n = stack.size();
+                    std::swap(stack[n - 1], stack[n - 2]);
+                }
+                continue;
+            }
+            size_t start = curr->start, end = curr->end;
+
+            for (size_t i = start; i < end; ++i){
+                if (mollerTrumbore(ray, indices[i], alphaTemp, betaTemp, gammaTemp, tTemp) && tTemp < t){
+                    alpha = alphaTemp;
+                    beta = betaTemp;
+                    gamma = gammaTemp;
+                    t = tTemp;
+                    intersectionIndex = i;
+                    info.intersect = true;
+                    info.object = (void *) this;
+                }
+            }
+        }        
+        
+
         if (!info.intersect){
             return info;
         }
@@ -664,14 +762,17 @@ int main() {
     double angle = PI / 3.;
     Scene scene = Scene(3E10, Vector(-10., 20., 40.), 5);
 
-    // Sphere diffuseSphere = Sphere(Vector(0., 0., 0.), 10., Vector(0., 0., 0.5), false);
+    // Sphere diffuseSphere = Sphere(Vector(-10., 0., 30.), 3., Vector(0., 0., 0.5), false);
     // scene.addObject((Geometry*)&diffuseSphere);
+
+    // Sphere mirrorSphere = Sphere(Vector(10., 0., 30.), 3., Vector(0., 0., 0.5), true);
+    // scene.addObject((Geometry*)&mirrorSphere);
 
     TriangleMesh cat;
     cat.readOBJ("../CSE306/objs/cat.obj");
     cat.translateMesh(Vector(0., -17., 0.));
     cat.scaleMesh(0.6);
-    cat.computeBoundingBox();
+    cat.computeBVH();
     scene.addObject((Geometry *) &cat);
 
     
@@ -701,7 +802,7 @@ int main() {
     
     std::vector<unsigned char> image(W * H * 3, 0);
     
-    int ray_count = 5;
+    int ray_count = 64;
 #pragma omp parallel for schedule(dynamic, 1)
     for (int i = 0; i < H; i++) {
         for (int j = 0; j < W; j++) {
