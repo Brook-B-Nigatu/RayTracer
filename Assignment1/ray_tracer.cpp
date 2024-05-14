@@ -619,9 +619,6 @@ class Sphere : Geometry{
 public:
     Vector center;
     double radius;
-
-    
-
     Sphere(Vector center, double radius, Vector albedo, bool isMirror) : center{center}, radius{radius}{
         this->albedo = albedo;
         this->isMirror = isMirror;
@@ -646,6 +643,7 @@ public:
         }
         P = ray.origin + t * ray.direction;
         N = getNormal(P);
+        
         info.P = P;
         info.N = N;
         info.t = t;
@@ -671,14 +669,17 @@ public:
     double lightIntensity;
     std::vector<Geometry*> objects;
     int recursionDepth;
+
     Scene(double lightIntensity, Vector lightSource, int recursionDepth = 5){
         this->lightSource = lightSource;
         this->lightIntensity = lightIntensity;
         this->recursionDepth = recursionDepth;
     }
+
     void addObject(Geometry* S){
         objects.push_back(S);
     }
+
     Intersection intersect(const Ray& ray){
         Intersection info;
         for (size_t i = 0; i < objects.size(); ++i){
@@ -721,32 +722,8 @@ public:
             if(((Geometry *)info.object)->isMirror){
                 return getColorRec(reflect(ray, info.P, info.N), recDepth - 1);
             }
-            // if(this->objects[sphere_id]->isTransparent){
-            //     double dotProd = dot(ray.direction, N);
-            //     Geometry* obj = this->objects[sphere_id];
-            //     double ratio = 1 / obj->refractionIndex;
-            //     if (dotProd > 0){
-            //         N = -1 * N;
-            //         ratio = 1 / ratio;
-            //     }
-            //     if (obj->invertNormal){
-            //         ratio = 1 / ratio;
-            //     }
-            //     double temp = std::max(1 - std::pow(ratio, 2) * (1 - std::pow(dot(ray.direction, N), 2)), 0.);
-            //     if (temp < 0){
-            //         return getColor(reflect(ray, P, N), recDepth - 1);
-            //         //return Vector(0., 0., 0.);
-            //     }
-            //     Vector tangential = ratio * (ray.direction - dot(ray.direction, N) * N);
-            //     Vector normal = -sqrt(temp) * N;
-            //     P = P - EPS * N;
-            //     Vector transmittedDir = tangential + normal;
-            //     transmittedDir.normalize();
-            //     Ray transmitted(transmittedDir, P);
-            //     return getColor(transmitted, recDepth - 1);
-            // }
             
-            Vector col = directLighting(info);     
+            Vector col = directLighting(info);    
             return col + (((Geometry *)info.object)->albedo * getColorRec(Ray(randomVect(info.N), info.P + EPS * info.N), recDepth - 1));
         }
         return Vector(0., 0., 0.);
@@ -762,12 +739,6 @@ int main() {
     Vector camera_pos = Vector(0., 0., 55.); 
     double angle = PI / 3.;
     Scene scene = Scene(3E10, Vector(-10., 20., 40.), 5);
-
-    // Sphere diffuseSphere = Sphere(Vector(-10., 0., 30.), 3., Vector(0., 0., 0.5), false);
-    // scene.addObject((Geometry*)&diffuseSphere);
-
-    // Sphere mirrorSphere = Sphere(Vector(10., 0., 30.), 3., Vector(0., 0., 0.5), true);
-    // scene.addObject((Geometry*)&mirrorSphere);
 
     TriangleMesh cat(Vector(0.3, 0.2, 0.25), false);
     cat.readOBJ("../CSE306/objs/cat.obj");
@@ -796,10 +767,6 @@ int main() {
     Sphere backWall = Sphere(Vector(0., 0., 1000.), 940., Vector(1., 0.5, 0.5), false);
     scene.addObject((Geometry *) &backWall);
 
-
-    // scene.addObject(Sphere(Vector(0., 0., 0.), 10., 1.5));
-    // scene.addObject(Sphere(Vector(20., 0., 0.), 9., 1.5, true));
-    // scene.addObject(Sphere(Vector(20., 0., 0.), 10., 1.5));
     
     std::vector<unsigned char> image(W * H * 3, 0);
     
@@ -824,7 +791,5 @@ int main() {
         }
     }
     stbi_write_png("image.png", W, H, 3, &image[0], 0);
-    
- 
     return 0;
 }
