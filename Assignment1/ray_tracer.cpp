@@ -268,9 +268,10 @@ public:
 	std::vector<Vector> vertexcolors;
     BVH *bvh;
     ~TriangleMesh() {delete bvh;}
-	TriangleMesh() {
-        this->albedo = Vector(0.3, 0.2, 0.25);
-        this->isMirror = false;
+	TriangleMesh(Vector albedo, bool isMirror){
+        this->albedo = albedo;
+        this->isMirror = isMirror;
+        this->bvh = nullptr;
     };
 
     void translateMesh(Vector translationVector){
@@ -768,7 +769,7 @@ int main() {
     // Sphere mirrorSphere = Sphere(Vector(10., 0., 30.), 3., Vector(0., 0., 0.5), true);
     // scene.addObject((Geometry*)&mirrorSphere);
 
-    TriangleMesh cat;
+    TriangleMesh cat(Vector(0.3, 0.2, 0.25), false);
     cat.readOBJ("../CSE306/objs/cat.obj");
     cat.translateMesh(Vector(0., -17., 0.));
     cat.scaleMesh(0.6);
