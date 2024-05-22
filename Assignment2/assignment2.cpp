@@ -5,6 +5,7 @@ static std::uniform_real_distribution<double> uniform (0, 1);
 
 #include<vector>
 #include<string>
+#include<iostream>
 #include "../Assignment1/VectorClass.h"
 // if the Polygon class name conflicts with a class in wingdi.h on Windows, use a namespace or change the name
 class Polygon {  
@@ -42,9 +43,15 @@ class Voronoi {
 			for (size_t i = 0; i < n; ++i){
 				Vector curr = cell.vertices[i];
 				Vector prev = cell.vertices[(n + i - 1) % n];
-
-				double t = dot(M - prev, p2 - p1) / dot(curr - prev, p2 - p1);
-				Vector P = curr + t * (curr - prev);
+				double denom = dot(curr - prev, p2 - p1);
+				double t;
+				if (denom == 0.){
+					t = 1e9;
+				}
+				else{
+					t = dot(M - prev, p2 - p1) / denom;
+				}	
+				Vector P = prev + t * (curr - prev);
 				if (closer(curr, p1, p2)){
 					if (!closer(prev, p1, p2)){
 						res.vertices.push_back(P);
@@ -58,9 +65,9 @@ class Voronoi {
 			return res;
 
 		}
-		bool closer(const Vector &vertex, const Vector &p1, const Vector &p2){
-			Vector p1V = vertex - p1;
-			Vector p2V = vertex - p2;
+		bool closer(const Vector &point, const Vector &p1, const Vector &p2){
+			Vector p1V = point - p1;
+			Vector p2V = point - p2;
 
 			return p1V.norm2() <= p2V.norm2();
 		}
@@ -141,6 +148,7 @@ int main(){
 	for (size_t i = 0; i < N; ++i){
 		vor.points.push_back(Vector(uniform(engine), uniform(engine), 0.));
 	}
-	save_svg(vor.computeVoronoi(), "test");
+
+	save_svg(vor.computeVoronoi(), "test.svg");
 	return 0;
 }
