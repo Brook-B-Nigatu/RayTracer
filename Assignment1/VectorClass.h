@@ -12,7 +12,7 @@ public:
         return data[0] * data[0] + data[1] * data[1] + data[2] * data[2];
     }
     double norm() const {
-        return sqrt(norm2());
+        return sqrt(norm2()); 
     }
     void normalize() {
         double n = norm();

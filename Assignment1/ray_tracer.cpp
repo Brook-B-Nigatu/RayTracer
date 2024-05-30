@@ -20,7 +20,7 @@ static std::uniform_real_distribution<double> uniform (0, 1);
 #include <omp.h>
 #include <string>
 #include <stdio.h>
-#include <algorithm>
+#include <algorithm> 
 #include "VectorClass.h"
 
 
