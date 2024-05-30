@@ -4,7 +4,7 @@ project(raytracer)
 
 set(CMAKE_CXX_STANDARD 11)
 
-add_executable(main Assignment2/assignment2.cpp)
+add_executable(main Assignment1/ray_tracer.cpp)
 
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
